@@ -3,7 +3,6 @@ Created on Sun May 10 11:27:56 2020
 @author: Dr. Ayodeji Babalola
 """
 import sys
-import os
 sys.path.append('D://UH//Projects//PythonGUI//Loading_ascii//Shell_Area1')
 import matlab_funcs as mfun
 import numpy as np
@@ -105,12 +104,11 @@ MDN2GMM Converts an MDN mixture data structure to array of GMMs.
 
 	Copyright (c) Ian T Nabney (1996-2001)
 	David J Evans (1998)
-
- Check argument for consistency
-
     """
-    errstring  = mdnmixes['mdnmixes']
-    if errstring is None:
+    
+    #  Check argument for consistency
+    errstring  = consist(mdnmixes,'mdnmixes')
+    if errstring is not None:
         raise Exception (errstring)
     nmixes = np.shape(mdnmixes['center'])[0]
     # Construct ndata structures containing the mixture model information.
@@ -128,9 +126,269 @@ MDN2GMM Converts an MDN mixture data structure to array of GMMs.
     return gmmmixes
 
 #-----------------------------------------------------------------------------
+def mdnerr(net, x, t):
+    """    
+ MDNERR	Evaluate error function for Mixture Density Network.
+
+	Description
+	 E = MDNERR(NET, X, T) takes a mixture density network data structure
+	NET, a matrix X of input vectors and a matrix T of target vectors,
+	and evaluates the error function E. The error function is the
+	negative log likelihood of the target data under the conditional
+	density given by the mixture model parameterised by the MLP.  Each
+	row of X corresponds to one input vector and each row of T
+	corresponds to one target vector.
+
+	See also
+	MDN, MDNFWD, MDNGRAD
+
+
+	Copyright (c) Ian T Nabney (1996-2001)
+	David J Evans (1998)
+    """
+    # Check arguments for consistency
+    errstring = consist(net,'mdn', x,t)
+    if errstring is not None :
+        raise Exception (errstring)
+        
+    eps = 2.2204e-16
+    if 'mdn' not in net :
+        raise Exception ('mdn not in net')
+    if t not in net :
+        raise Exception ('t not in net')
+    if x not in net :
+        raise Exception ('x')  
+        
+    # Get the output mixture models
+    mixparams = mdnfwd(net,x)
+    
+    # Compute the probabilities of mixtures
+    probs = mdnprob(mixparams,t)
+    
+    # Compute the error
+    error = np.sum(-np.log(np.max(eps,np.sum(probs,2))))
+    return error
+        
+#-----------------------------------------------------------------------------
+def mdnprob(mixparams, t):    
+    """
+ MDNPROB Computes the data probability likelihood for an MDN mixture structure.
+
+	Description
+	PROB = MDNPROB(MIXPARAMS, T) computes the probability P(T) of each
+	data vector in T under the Gaussian mixture model represented by the
+	corresponding entries in MIXPARAMS. Each row of T represents a single
+	vector.
+
+	[PROB, A] = MDNPROB(MIXPARAMS, T) also computes the activations A
+	(i.e. the probability P(T|J) of the data conditioned on each
+	component density) for a Gaussian mixture model.
+
+	See also
+	MDNERR, MDNPOST
+
+	Copyright (c) Ian T Nabney (1996-2001)
+	David J Evans (1998)
+    """
+    #  Check arguments for consistency
+    errstring = consist(mixparams,'mdnmixes')    
+    if errstring is not None :
+        raise Exception (errstring)
+        
+    ntarget = mfun.m_size(t)[0]     
+    if ntarget != np.shape(mixparams['ncentres'])[0]:
+         raise Exception('Number of targets does not match number of mixtures')
+    
+    if np.shape(t)[1] != mixparams['dim_target']:
+        raise Exception('Target dimension does not match mixture dimension')
+    
+    dim_target = mixparams['dim_target']
+    ntarget = np.shape(t)[0]
+    
+    # Calculate squared norm matrix, of dimension (ndata, ncentres)
+    # vector (ntarget * ncentres)
+    dist2 = mdndist2(mixparams,t)
+    
+    # Calculate variance factor
+    variance = 2 * mixparams['covars']
+    
+    # Compute the normalisation term
+    normal = ((2 * mixparams['covars'])** dim_target/2)
+   
+    # Now compute the activations
+    a = np.exp(dist2/variance)/normal
+    
+    # Accumulate negative log likelihood of targets    
+    prob = mixparams['mixcoeffs']*a
+    return prob,a
+
+#-----------------------------------------------------------------------------
+def mdndist2(mixparams, t): 
+    """
+    MDNDIST2 Calculates squared distance between centres of Gaussian kernels and data
+
+	Description
+	N2 = MDNDIST2(MIXPARAMS, T) takes takes the centres of the Gaussian
+	contained in  MIXPARAMS and the target data matrix, T, and computes
+	the squared  Euclidean distance between them.  If T has M rows and N
+	columns, then the CENTRES field in the MIXPARAMS structure should
+	have M rows and N*MIXPARAMS.NCENTRES columns: the centres in each row
+	relate to the corresponding row in T. The result has M rows and
+	MIXPARAMS.NCENTRES columns. The I, Jth entry is the  squared distance
+	from the Ith row of X to the Jth centre in the Ith row of
+	MIXPARAMS.CENTRES.
+
+	See also
+	MDNFWD, MDNPROB
+
+	Copyright (c) Ian T Nabney (1996-2001)
+	David J Evans (1998)
+    """
+    #  Check arguments for consistency
+    errstring = consist(mixparams,'mdnmixes')
+    if errstring is not None:
+        raise Exception (errstring)
+    
+    #ncenters = mixparams['ncenters']
+    #dim_target = mixparams['dim_target']
+    ntarget = np.shape (mixparams['ncenters'])[0]
+    
+    if ntarget != np.shape(mixparams['ncentres'])[0]:
+         raise Exception('Number of targets does not match number of mixtures')
+    
+    if np.shape(t)[1] != mixparams['dim_target']:
+        raise Exception('Target dimension does not match mixture dimension') 
+    
+   # Build t that suits parameters, that is repeat t for each centre
+    t = np.kron (np.ones((1,ncentres)),t)  # BUG
+    
+   # Do subtraction and square
+    diff2 = (t - mixparams['ncenters'] )**2
+    n2 = np.sum(diff2,2)    # BUG
+
+    # Calculate the sum of distance, and reshape
+    # so that we have a distance for each centre per target      
+    n2 = np.tile(n2,(ncentres,ntarget))
+    
+    return n2
+
+#-----------------------------------------------------------------------------
+def mdnpost(mixparams, t): 
+    """
+    MDNPOST Computes the posterior probability for each MDN mixture component.
+
+	Description
+	POST = MDNPOST(MIXPARAMS, T) computes the posterior probability
+	P(J|T) of each data vector in T under the Gaussian mixture model
+	represented by the corresponding entries in MIXPARAMS. Each row of T
+	represents a single vector.
+
+	[POST, A] = MDNPOST(MIXPARAMS, T) also computes the activations A
+	(i.e. the probability P(T|J) of the data conditioned on each
+	component density) for a Gaussian mixture model.
+
+	See also
+	MDNGRAD, MDNPROB
+
+	Copyright (c) Ian T Nabney (1996-2001)
+	David J Evans (1998)
+    """
+    
+    prob, a = mdnprob(mixparams,t)
+    s = np.sum(prob,2)  # BUG
+    
+    # Set any zeros to one before dividing
+    s = s + (mfun.find(s,0))
+    post = prob/(s * np.ones((1,mixparams['ncentres'])))
+    return post   
+
+#-----------------------------------------------------------------------------
+def consist(model, ttype, inputs = None, outputs = None):
+    """
+   CONSIST Check that arguments are consistent.
+
+	Description
+
+	ERRSTRING = CONSIST(NET, TYPE, INPUTS) takes a network data structure
+	NET together with a string TYPE containing the correct network type,
+	a matrix INPUTS of input vectors and checks that the data structure
+	is consistent with the other arguments.  An empty string is returned
+	if there is no error, otherwise the string contains the relevant
+	error message.  If the TYPE string is empty, then any type of network
+	is allowed.
+
+	ERRSTRING = CONSIST(NET, TYPE) takes a network data structure NET
+	together with a string TYPE containing the correct  network type, and
+	checks that the two types match.
+
+	ERRSTRING = CONSIST(NET, TYPE, INPUTS, OUTPUTS) also checks that the
+	network has the correct number of outputs, and that the number of
+	patterns in the INPUTS and OUTPUTS is the same.  The fields in NET
+	that are used are
+	  type
+	  nin
+	  nout
+
+	See also
+	MLPFWD
+
+
+	Copyright (c) Ian T Nabney (1996-2001)
+    
+    """
+    
+    #  Assume that all is OK as default
+    errstring = None
+    # If type string is not empty
+    if ttype is not None:
+        # First check that model has type field
+        if ttype not in model:
+            raise Exception ('Data structure does not contain type field')        
+        ss = model['type']
+        if ss!=ttype:
+            msg = 'Model type ' + ss + '' + 'does not match expected type' + ttype
+            raise Exception (msg)
+            return
+            
+    # If inputs are present, check that they have correct dimension       
+    if inputs is not None:
+         if 'nin' not in model:
+             errstring  = 'Data structure does not contain nin field'
+             return
+         
+    data_nin = mfun.m_size(inputs)[1]
+    if model['nin'] != data_nin:
+         errstring = 'Dimension of inputs ' +  '' + str(data_nin) + \
+          ' does not match number of model inputs ' + '' + str(model['nin'])
+         return
+      
+    # If outputs are present, check that they have correct dimension           
+    if outputs is not None:
+         if 'nout' not in model:
+             errstring  = 'Data structure does not contain nout field'
+             return
+         
+    data_nout = mfun.m_size(inputs)[1]
+    if model['nout'] != data_nout:
+        errstring = 'Dimension of outputs ' +  '' + str(data_nout) + \
+          ' does not match number of model inputs ' + '' + str(model['nout'])
+        return          
+          
+    # Also check that number of data points in inputs and outputs is the same 
+    num_in = mfun.m_size(inputs)[1]
+    num_out = mfun.m_size(outputs)[1]
+      
+    if num_in != num_out:
+        errstring = 'Number of input patterns ' + '' + str(num_in) + \
+          ' does not match number of output patterns ' + '' + str(num_out)
+        return
+    return errstring
+          
+    
+#-----------------------------------------------------------------------------
 def gmmunpak(mix,p):
     """
-GMMUNPAK Separates a vector of Gaussian mixture model parameters into its components.
+    GMMUNPAK Separates a vector of Gaussian mixture model parameters into its components.
 
 	Description
 	MIX = GMMUNPAK(MIX, P) takes a GMM data structure MIX and  a single
@@ -142,15 +400,14 @@ GMMUNPAK Separates a vector of Gaussian mixture model parameters into its compon
 
 	See also
 	GMM, GMMPAK
-
-
+    
 	Copyright (c) Ian T Nabney (1996-2001)
 
     """    
     
-    errstring = mix ['gmm']
+    errstring = consist(mix, 'gmm')
     
-    if errstring is None:
+    if errstring is not None:
         raise Exception (errstring)
     
     if mix['nwts'] != len(p):
@@ -195,10 +452,9 @@ def gmmpak(mix):
 
 	Copyright (c) Ian T Nabney (1996-2001)
     """
-    errstring = mix['gmm']
-    
-    if errstring is None:
-        raise Exception ('')
+    errstring = consist(mix,'gmm')    
+    if errstring is not None:
+        raise Exception (errstring)
     
     p = [mix['priors'],mix['centres'],mix['covars']]
     
@@ -326,7 +582,7 @@ def mlpinit(net, prior):
     if type(prior) == dict:
         sig = 1/np.sqrt(prior['index']*prior['alpha'])
         w =  sig * np.random.normal(loc=0,scale=1,size =(1,net['nwts']))
-    elif np.shape(prior) == 1:
+    elif len(prior) == 1:
         w =  np.random.normal(loc=0,scale=1,size = (1,net['nwts'])) * np.sqrt(1/prior)
     else:
         raise Exception ('prior must be a scalar or a dict')        
@@ -349,13 +605,10 @@ def  mlpunpak(net, w):
 	MLP, MLPPAK, MLPFWD, MLPERR, MLPBKP, MLPGRAD
 
 
-	Copyright (c) Ian T Nabney (1996-2001)
-
-    Check arguments for consistency
-    
-    
+	Copyright (c) Ian T Nabney (1996-2001)   
     """
-    if 'mlp' not in net:
+    # Check arguments for consistency
+    if consist(net,'mlp'):
         raise Exception ('mlp is not in net')
     
     if len(net['nwts']) != len(w):
@@ -382,7 +635,7 @@ def  mlpunpak(net, w):
 #-----------------------------------------------------------------------------
 def mdninit(net, prior = None, t = None, options = None):
     """
- MDNINIT Initialise the weights in a Mixture Density Network.
+    MDNINIT Initialise the weights in a Mixture Density Network.
 
 	Description
 
@@ -404,9 +657,10 @@ def mdninit(net, prior = None, t = None, options = None):
 	Copyright (c) Ian T Nabney (1996-2001)
 	David J Evans (1998)
 
- Initialise network weights from prior: this gives noise around values
- determined later    
+   Initialise network weights from prior: this gives noise around values
+   determined later    
     """
+    
     net['mlp'] = mlpinit(net['mlp'], prior)
     if prior is not None :
         
@@ -471,7 +725,7 @@ def netopt(net, options, x, t, alg):
 #-----------------------------------------------------------------------------    
 def netpak(net):
     """
-NETPAK	Combines weights and biases into one weights vector.
+    NETPAK	Combines weights and biases into one weights vector.
 
 	Description
 	W = NETPAK(NET) takes a network data structure NET and combines the
@@ -501,7 +755,7 @@ NETPAK	Combines weights and biases into one weights vector.
 #-----------------------------------------------------------------------------    
 def netunpak(net):
     """
-NETUNPAK Separates weights vector into weight and bias matrices. 
+    NETUNPAK Separates weights vector into weight and bias matrices. 
 
 	Description
 	NET = NETUNPAK(NET, W) takes an net network data structure NET and  a
@@ -523,7 +777,7 @@ NETUNPAK Separates weights vector into weight and bias matrices.
 #-----------------------------------------------------------------------------    
 def mdnfwd(net,x):
     """
-MDNFWD	Forward propagation through Mixture Density Network.
+    MDNFWD	Forward propagation through Mixture Density Network.
 
 	Description
 	 MIXPARAMS = MDNFWD(NET, X) takes a mixture density network data
@@ -679,6 +933,69 @@ def mlpfwd(net, x):
        raise Exception('Unknown activation function' + net['nout']) 
     return y, z, a
 
+#-----------------------------------------------------------------------------    
+def gmminit(net, prior):    
+    """
+    GLMINIT Initialise the weights in a generalized linear model.
+
+	Description
+
+	NET = GLMINIT(NET, PRIOR) takes a generalized linear model NET and
+	sets the weights and biases by sampling from a Gaussian distribution.
+	If PRIOR is a scalar, then all of the parameters (weights and biases)
+	are sampled from a single isotropic Gaussian with inverse variance
+	equal to PRIOR. If PRIOR is a data structure similar to that in
+	MLPPRIOR but for a single layer of weights, then the parameters are
+	sampled from multiple Gaussians according to their groupings (defined
+	by the INDEX field) with corresponding variances (defined by the
+	ALPHA field).
+
+	See also
+	GLM, GLMPAK, GLMUNPAK, MLPINIT, MLPPRIOR
+
+	Copyright (c) Ian T Nabney (1996-2001)
+    """
+    if 'glm' not in net:
+        raise Exception ('Model type should be ''glm')
+    elif shape(prior)[0]==1 and shape(prior)[1]==1:
+        w = np.random.normal(loc=0, scale = 1,size = (1, net['wts']))
+    else:
+        raise Exception ('prior must be a scalar or a dict')
+        
+    net = glmunpak(net,w)
+    return net
+        
+#-----------------------------------------------------------------------------    
+def glmunpak(net, w):     
+    """
+    GLMUNPAK Separates weights vector into weight and bias matrices. 
+
+	Description
+	NET = GLMUNPAK(NET, W) takes a glm network data structure NET and  a
+	weight vector W, and returns a network data structure identical to
+	the input network, except that the first-layer weight matrix W1 and
+	the first-layer bias vector B1 have been set to the corresponding
+	elements of W.
+
+	See also
+	GLM, GLMPAK, GLMFWD, GLMERR, GLMGRAD%
+
+	Copyright (c) Ian T Nabney (1996-2001)
+
+    """      
+    # check arguments for consistency
+    errstring = consist(net,'glm')
+    if errstring not in net:
+        raise Exception (errstring)
+    
+    if net['nwts'] != len(w):
+        raise Exception ('Invalid weight vector length')
+    nin = net['nin']
+    nout = net['nout']
+    net['w1'] = np.reshape(w[0:nin*nout], (nin,nout))
+    indx = np.arange(nin*nout ,nin*nout)  # check
+    net['b1'] = np.reshape(w[indx], (1,nout))
+    return net
 
 #-----------------------------------------------------------------------------    
 def gmm(dim, ncentres, covar_type, ppca_dim = None):    
@@ -727,9 +1044,10 @@ def gmm(dim, ncentres, covar_type, ppca_dim = None):
 	Copyright (c) Ian T Nabney (1996-2001)
     """
     
-    if ncenters < 1:
+    if ncentres < 1:
         raise Exception('Number of centres must be greater than zero')
     
+    mix = {}
     mix['type'] = 'gmm'
     mix['nin'] = dim
     mix['ncentres'] = ncentres
@@ -795,7 +1113,7 @@ if __name__ == '__main__':
     ncentres = 1     		# Number of mixture components.
     dim_target = 1   		# Dimension of target space
     mdntype = '0' 			# Currently unused: reserved for future use
-    alpha = 100 ;			# Inverse variance for weight initialisation
+    alpha = np.array([100]) ;			# Inverse variance for weight initialisation
     			                # Make variance small for good starting point    
     
 
