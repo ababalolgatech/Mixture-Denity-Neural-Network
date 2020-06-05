@@ -6,6 +6,7 @@ import sys
 sys.path.append('D://UH//Projects//PythonGUI//Loading_ascii//Shell_Area1')
 import matlab_funcs as mfun
 import numpy as np
+import scipy.stats as stats
 
 #-----------------------------------------------------------------------------
 def mdn(nin ,nhidden,ncenter,dim_target,mix_type= None,prior= None,beta= None):
@@ -325,14 +326,12 @@ def consist(model, ttype, inputs = None, outputs = None):
 	network has the correct number of outputs, and that the number of
 	patterns in the INPUTS and OUTPUTS is the same.  The fields in NET
 	that are used are
-	  type
-	  nin
-	  nout
+	   - type
+	   - nin
+	   - nout
 
 	See also
 	MLPFWD
-
-
 	Copyright (c) Ian T Nabney (1996-2001)
     
     """
@@ -342,46 +341,47 @@ def consist(model, ttype, inputs = None, outputs = None):
     # If type string is not empty
     if ttype is not None:
         # First check that model has type field
-        if ttype not in model:
-            raise Exception ('Data structure does not contain type field')        
+        if ttype != model['type']:
+            errstring = 'Data structure does not contain' + ' ' +  ttype  
+            return errstring
+        
         ss = model['type']
         if ss!=ttype:
-            msg = 'Model type ' + ss + '' + 'does not match expected type' + ttype
-            raise Exception (msg)
-            return
+            errstring = 'Model type ' + ss + ' ' + 'does not match expected type' + ttype            
+            return errstring 
             
     # If inputs are present, check that they have correct dimension       
     if inputs is not None:
          if 'nin' not in model:
              errstring  = 'Data structure does not contain nin field'
-             return
-         
-    data_nin = mfun.m_size(inputs)[1]
-    if model['nin'] != data_nin:
-         errstring = 'Dimension of inputs ' +  '' + str(data_nin) + \
-          ' does not match number of model inputs ' + '' + str(model['nin'])
-         return
+             return errstring 
+         else:    
+            data_nin = mfun.m_size(inputs)[1]
+            if model['nin'] != data_nin:
+                 errstring = 'Dimension of inputs ' +  ' ' + str(data_nin) + \
+                  ' does not match number of model inputs ' + ' ' + str(model['nin'])
+                 return errstring 
       
     # If outputs are present, check that they have correct dimension           
     if outputs is not None:
          if 'nout' not in model:
              errstring  = 'Data structure does not contain nout field'
-             return
-         
-    data_nout = mfun.m_size(inputs)[1]
-    if model['nout'] != data_nout:
-        errstring = 'Dimension of outputs ' +  '' + str(data_nout) + \
-          ' does not match number of model inputs ' + '' + str(model['nout'])
-        return          
+             return errstring 
+         else:    
+            data_nout = mfun.m_size(inputs)[1]
+            if model['nout'] != data_nout:
+                errstring = 'Dimension of outputs ' +  ' ' + str(data_nout) + \
+                  ' does not match number of model inputs ' + ' ' + str(model['nout'])
+                return errstring         
           
-    # Also check that number of data points in inputs and outputs is the same 
-    num_in = mfun.m_size(inputs)[1]
-    num_out = mfun.m_size(outputs)[1]
-      
-    if num_in != num_out:
-        errstring = 'Number of input patterns ' + '' + str(num_in) + \
-          ' does not match number of output patterns ' + '' + str(num_out)
-        return
+            # Also check that number of data points in inputs and outputs is the same 
+            num_in = mfun.m_size(inputs)[1]
+            num_out = mfun.m_size(outputs)[1]
+              
+            if num_in != num_out:
+                errstring = 'Number of input patterns ' + ' ' + str(num_in) + \
+                  ' does not match number of output patterns ' + ' ' + str(num_out)
+                return errstring 
     return errstring
           
     
@@ -589,7 +589,7 @@ def mlpinit(net, prior):
     net = mlpunpak(net, w)
     return net
 #-----------------------------------------------------------------------------
-def  mlpunpak(net, w):
+def  mlpunpak(net,ww):
     """
    MLPUNPAK Separates weights vector into weight and bias matrices. 
 
@@ -608,27 +608,39 @@ def  mlpunpak(net, w):
 	Copyright (c) Ian T Nabney (1996-2001)   
     """
     # Check arguments for consistency
-    if consist(net,'mlp'):
-        raise Exception ('mlp is not in net')
+    errstring = consist(net,'mlp')
+    if errstring is not None:
+        raise Exception (errstring )
     
-    if len(net['nwts']) != len(w):
+    if net['nwts'] !=  np.shape(ww)[1]:
         raise Exception ('Invalid weight vector length')
     
     nin = net['nin']
     nhidden = net['nhidden']
     nout = net['nout']
     
-    mark1 = nin*nhidden
-    net['w1'] = np.reshape(w[0:mark1],(nin,nhidden))
+    mark1 = nin*nhidden-1
+    net['w1'] = np.reshape(ww[0,0:mark1+1],(nin,nhidden))
     mark2 = mark1 + nhidden
-    indx = np.arange(mark2)
-    net['b1'] = np.reshape(w[mark1+ indx],(1,nhidden))
-    mark3 = mark2 + nhidden*nout
-    indx = np.arange(mark3)
-    net['w2'] = np.reshape(w[mark2 + indx],(nhidden, nout))
+    if mark1 + 1 == mark2:
+        indx = mark2
+    else:
+        indx = np.arange(mark1+1,mark2)        
+    net['b1'] = np.reshape(ww[0,indx],(1,nhidden))
+    
+    mark3 = mark2 + nhidden*nout    
+    if mark2 + 1 == mark3:
+        indx = mark3
+    else:
+        indx = np.arange(mark2+1,mark3+1)
+    net['w2'] = np.reshape(ww[0,indx],(nhidden, nout))
+    
     mark4 = mark3 + nout
-    indx = np.arange(mark4)
-    net['b2'] = np.reshape(w[mark3 + indx],(1, nout))
+    if mark3 + 1 == mark4:
+        indx = mark4
+    else:
+        indx = np.arange(mark3+1,mark4+1)  
+    net['b2'] = np.reshape(ww[0,indx],(1, nout))
     
     return net
                   
@@ -934,7 +946,209 @@ def mlpfwd(net, x):
     return y, z, a
 
 #-----------------------------------------------------------------------------    
-def gmminit(net, prior):    
+def gmminit(mix, xx, options):  
+    """
+   GMMINIT Initialises Gaussian mixture model from data
+
+	Description
+	MIX = GMMINIT(MIX, X, OPTIONS) uses a dataset X to initialise the
+	parameters of a Gaussian mixture model defined by the data structure
+	MIX.  The k-means algorithm is used to determine the centres. The
+	priors are computed from the proportion of examples belonging to each
+	cluster. The covariance matrices are calculated as the sample
+	covariance of the points associated with (i.e. closest to) the
+	corresponding centres. For a mixture of PPCA model, the PPCA
+	decomposition is calculated for the points closest to a given centre.
+	This initialisation can be used as the starting point for training
+	the model using the EM algorithm.
+
+	See also
+	GMM
+
+
+	Copyright (c) Ian T Nabney (1996-2001)
+    """
+    eps = 2.2204e-16
+    ndata, xdim = mfun.m_size(xx)
+    #  Check that inputs are consistent
+    errstring = consist(mix,'gmm',x)
+    if errstring is not None:
+        raise Exception(errstring)
+    
+   # Arbitrary width used if variance collapses to zero: make it 'large' so
+   # that centre is responsible for a reasonable number of points. 
+    GMM_WIDTH = 1.0
+    
+    # Use kmeans algorithm to set centres
+    options[4] = 1
+    mix['centres'],options,post = kmeans(mix['centres'],x,options)
+    
+    # Set priors depending on number of points in each cluster
+    cluster_sizes = np.max(np.sum(post,1),1)   # % Make sure that no prior is zero
+    mix['priors']  = cluster_sizes/np.sum(cluster_sizes)
+    
+    if mix['covar_type'] == 'spherical':
+        if mix['centres'] > 1:
+        # Determine widths as distance to nearest centre 
+         # (or a constant if this is zero)  
+            cdist = dist2(mix['centres'],mix['centres'])
+            cdist = cdist + np.diag(np.ones(mix['ncentres']*realmax))
+            mix['covars'] = min(cidst)
+            mix['covars'] =  mix['covars'] + GMM_WIDTH* (mix['covars'] < eps)
+        else:
+        # Just use variance of all data points averaged over all dimensions
+            mix['covars'] = np.mean(np.diag(np.cov(xx)))
+    
+    elif mix['covar_type'] == 'diag':    
+        for i in range(mix['ncentres']):
+            # Pick out data points belonging to this centre
+            tmp = mfun.find(post[:,j])
+            cc =  xx[ tmp,:]
+            diffs = cc - np.ones((mfun.m_size(cc)[0],1))* mix['centres'][j,:]
+            mix['covars'][j,:] = np.sum(diffs*diffs,1)/mfun.m_size(cc)[0]
+            # Replace small entries by GMM_WIDTH value
+            mix['covars'] [j,:] = mix['covars'] [j,:] + GMM_WIDTH* (mix[j,:] < eps)
+    elif mix['covar_type'] == 'full':
+        for i in range(mix['ncentres']):
+            # Pick out data points belonging to this centre
+            tmp = mfun.find(post[:,j])
+            cc =  xx[ tmp,:]
+            diffs = cc - np.ones((mfun.m_size(cc)[0],1))* mix['centres'][j,:]
+            mix['covars'][j,:] = np.sum(diffs*diffs,1)/mfun.m_size(cc)[0]
+            # Add GMM_WIDTH*Identity to rank-deficient covariance matrices
+            if stats.rankdata(mix['covars'][:,:,j]) < mix['nin']:
+                mix['covars'][:,:,j] = mix['covars'][:,:,j] + GMM_WIDTH * np.eye(mix['nin'])
+    elif mix['covar_type'] == 'ppca':    
+        for i in range(mix['ncentres']):        
+            # Pick out data points belonging to this centre            
+            tmp = mfun.find(post[:,j])
+            cc =  xx[ tmp,:]
+            diffs = cc - np.ones((mfun.m_size(cc)[0],1))* mix['centres'][j,:]
+            tempcovars, tempU, templambda = \
+                ppca(np.dot(diffs,diffs)/mfun.m_size(cc)[0],mix['ppca_dim'])
+            if len(templambda) ~= mix['ppca_dim']:
+                raise Exception ('Unable to extract enough components')
+            else:
+                mix['covars'][j] = tempcovars
+                mix['U'][:,:,j] = tempU
+                mix['lambda'][j,:] = templambda
+    else:
+        msg = 'Unknown covariance type ', + ' ' + mix['covar_type']
+        raise Exception(msg)            
+#-----------------------------------------------------------------------------    
+def kmeans(centres, data, options): 
+    """
+     KMEANS	Trains a k means cluster model.
+
+	Description
+	CENTRES = KMEANS(CENTRES, DATA, OPTIONS) uses the batch K-means
+	algorithm to set the centres of a cluster model. The matrix DATA
+	represents the data which is being clustered, with each row
+	corresponding to a vector. The sum of squares error function is used.
+	The point at which a local minimum is achieved is returned as
+	CENTRES.  The error value at that point is returned in OPTIONS(8).
+
+	[CENTRES, OPTIONS, POST, ERRLOG] = KMEANS(CENTRES, DATA, OPTIONS)
+	also returns the cluster number (in a one-of-N encoding) for each
+	data point in POST and a log of the error values after each cycle in
+	ERRLOG.    The optional parameters have the following
+	interpretations.
+
+	OPTIONS(1) is set to 1 to display error values; also logs error
+	values in the return argument ERRLOG. If OPTIONS(1) is set to 0, then
+	only warning messages are displayed.  If OPTIONS(1) is -1, then
+	nothing is displayed.
+
+	OPTIONS(2) is a measure of the absolute precision required for the
+	value of CENTRES at the solution.  If the absolute difference between
+	the values of CENTRES between two successive steps is less than
+	OPTIONS(2), then this condition is satisfied.
+
+	OPTIONS(3) is a measure of the precision required of the error
+	function at the solution.  If the absolute difference between the
+	error functions between two successive steps is less than OPTIONS(3),
+	then this condition is satisfied. Both this and the previous
+	condition must be satisfied for termination.
+
+	OPTIONS(14) is the maximum number of iterations; default 100.
+
+	See also
+	GMMINIT, GMMEM
+
+
+	Copyright (c) Ian T Nabney (1996-2001)  
+    """ 
+    ndata, data_dim = mfun.m_size(data)
+    ncentres, ndim = mfun.m_size(centres)
+    
+    if dim != data_dim:
+        raise Exception('Data dimension does not match dimension of centres')
+    
+    if ncenter > ndata:
+        raise Exception ('More centres than data')
+    
+    # Sort out the options
+    
+    if options[13]:
+        niters = oprtions[14]
+    else:
+        niters = 100
+    
+    store = 1
+    errlog = np.zeros((1,niters))
+    
+    # Check if centres and posteriors need to be initialised from data
+    if options[4] == 1:
+      # Do the initialisation
+        perm = np.random.permutation(ndata)
+        perm = perm[0:ncentres]
+        # ssign first ncentres (permuted) data points as centres
+        centres = data[perm,:]
+        
+    # Matrix to make unit vectors easy to construct
+    idd = np.eye(ncentres)
+    
+    # Main loop of algorithm
+    for n in range(niters):
+       
+        # save old centres to check for termination
+        old_centres = centres
+        
+        # Calculate posteriors based on existing centres
+        d2 = dist2(data,centres)
+        
+        # Assign each point to nearest centre
+        minvals, index = np.min(d2,[],1)  # check
+        post = idd[indx,:]
+        
+        num_points = np.sum(post,1)
+        # Adjust the centres based on new posteriors
+        
+        for j in range(ncentres):
+            if num_points[j] > 0 :
+            tmp = mfun.find(post[:,j])  # BUG
+                centres[j,:] = np.sum(data/num_points[j]) # BUG
+       
+        # Error value is total squared distance from cluster centres
+        
+        err = np.sum(minvals)
+        if store:
+            errlog [n] = ee
+        
+        if options[1] > 0 :
+            print('Cycle %4d  Error %11.6f\n' + str(n) + ' ' + str(ee))
+        
+        if n > 0:
+           # Test for termination
+            if np.max(np.max(np.abs(centres - old_centres))) < options[1] and  \
+                np.abs(old_err - err) < options[2]
+                options[7] = err
+                return centres, options, post, errlog
+        old_err = err    
+    return centres, options, post, errlog
+    
+#-----------------------------------------------------------------------------    
+def glminit(net, prior):    
     """
     GLMINIT Initialise the weights in a generalized linear model.
 
@@ -1069,14 +1283,14 @@ def gmm(dim, ncentres, covar_type, ppca_dim = None):
         mix['ppca_dim'] = ppca_dim
     
     # Initialise priors to be equal and summing to one 
-    mix['priors'] = np.ones((1,mix['centres']))/mix['centres']
+    mix['priors'] = np.ones((1,mix['ncentres']))/mix['ncentres']
     
     # Initialise centres  
     mix['centres'] = np.random.normal(loc=0,scale=1,size = (mix['ncentres'], mix['nin']))
     
    # Initialise all the variances to unity    
     if mix['covar_type'] == 'spherical' :
-        mix['covars'] = np.ones((1,mix['centres']))
+        mix['covars'] = np.ones((1,mix['ncentres']))
         mix['nwts'] = mix['ncentres'] + mix['ncentres'] *mix['nin'] + mix['ncentres']
     elif mix['covar_type'] == 'diag' :
         mix['covars'] = np.ones((mix['centres']), mix['nin'])
